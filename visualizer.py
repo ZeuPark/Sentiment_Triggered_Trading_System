@@ -232,12 +232,17 @@ class Visualizer:
             f"Sharpe Ratio: {result.sharpe_ratio:.2f}"
         ]
         
-        fig.add_trace(
-            go.Table(
-                header=dict(values=['Metric', 'Value']),
-                cells=dict(values=[['Metric', 'Value'], metrics])
-            ),
-            row=3, col=2
+        # Add metrics as text annotation instead of table
+        fig.add_annotation(
+            text="<br>".join(metrics),
+            xref="x6", yref="y6",
+            x=0.5, y=0.5,
+            xanchor="center", yanchor="middle",
+            showarrow=False,
+            font=dict(size=12),
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="black",
+            borderwidth=1
         )
         
         # Update layout
