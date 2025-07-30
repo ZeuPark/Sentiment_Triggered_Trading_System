@@ -198,7 +198,7 @@ class Backtester:
                     'signal': signal
                 })
                 
-                print(f"📊 {symbol}: Sentiment={avg_sentiment:.3f}, Signal={signal.signal.value}, Score={signal.signal_score:.3f}")
+                print(f"📊 {symbol}: Sentiment={avg_sentiment:.3f}, Signal={signal.signal.value}")
         
         return signals
     
@@ -270,11 +270,12 @@ class Backtester:
                         symbol, price_data[symbol], timestamp, signal.signal, signal_price, signal.confidence
                     )
                     
-                    if entry_price is None:
-                        continue  # Skip if no entry found
+                    # entry/exit price가 None이면 거래 스킵
+                    if entry_price is None or exit_price is None:
+                        continue
                     
                     # Calculate PnL
-                    if signal.signal in [SignalType.STRONG_LONG, SignalType.WEAK_LONG]:
+                    if signal.signal == SignalType.LONG:
                         pnl = (exit_price - entry_price) / entry_price
                     else:  # SHORT signals
                         pnl = (entry_price - exit_price) / entry_price
@@ -291,11 +292,10 @@ class Backtester:
                         reasoning=signal.reasoning,
                         exit_reason=exit_reason,
                         hold_minutes=hold_minutes,
-                        stop_loss_price=entry_price * (1 - self.stop_loss_pct) if signal.signal in [SignalType.STRONG_LONG, SignalType.WEAK_LONG] else entry_price * (1 + self.stop_loss_pct),
-                        take_profit_price=entry_price * (1 + self.take_profit_pct) if signal.signal in [SignalType.STRONG_LONG, SignalType.WEAK_LONG] else entry_price * (1 - self.take_profit_pct),
+                        stop_loss_price=entry_price * (1 - self.stop_loss_pct) if signal.signal == SignalType.LONG else entry_price * (1 + self.stop_loss_pct),
+                        take_profit_price=entry_price * (1 + self.take_profit_pct) if signal.signal == SignalType.LONG else entry_price * (1 - self.take_profit_pct),
                         metadata={
-                            'signal_score': signal.signal_score,
-                            'relative_sentiment': signal.relative_sentiment,
+                            'symbol_sentiment': signal.symbol_sentiment,
                             'signal_time': timestamp,
                             'entry_delay': (entry_time - timestamp).total_seconds() / 60
                         }
@@ -352,11 +352,11 @@ class Backtester:
             price_change = (current_price - signal_price) / signal_price
             
             # Check for entry based on signal type
-            if signal_type in [SignalType.STRONG_LONG, SignalType.WEAK_LONG]:
+            if signal_type == SignalType.LONG:
                 # For LONG: wait for price to move up by threshold
                 if price_change >= threshold:
                     return current_price, row['Timestamp']
-            elif signal_type in [SignalType.STRONG_SHORT, SignalType.WEAK_SHORT]:
+            elif signal_type == SignalType.SHORT:
                 # For SHORT: wait for price to move down by threshold
                 if price_change <= -threshold:
                     return current_price, row['Timestamp']
@@ -375,7 +375,7 @@ class Backtester:
         future_prices = price_df[price_df['Timestamp'] > entry_time]
         
         # Calculate stop loss and take profit prices
-        if signal_type in [SignalType.STRONG_LONG, SignalType.WEAK_LONG]:
+        if signal_type == SignalType.LONG:
             stop_loss_price = entry_price * (1 - self.stop_loss_pct)
             take_profit_price = entry_price * (1 + self.take_profit_pct)
         else:  # SHORT signals
@@ -389,13 +389,13 @@ class Backtester:
             hold_minutes = (current_time - entry_time).total_seconds() / 60
             
             # Check stop loss
-            if (signal_type in [SignalType.STRONG_LONG, SignalType.WEAK_LONG] and current_price <= stop_loss_price) or \
-               (signal_type in [SignalType.STRONG_SHORT, SignalType.WEAK_SHORT] and current_price >= stop_loss_price):
+            if (signal_type == SignalType.LONG and current_price <= stop_loss_price) or \
+               (signal_type == SignalType.SHORT and current_price >= stop_loss_price):
                 return current_price, current_time, "STOP_LOSS", int(hold_minutes)
             
             # Check take profit
-            if (signal_type in [SignalType.STRONG_LONG, SignalType.WEAK_LONG] and current_price >= take_profit_price) or \
-               (signal_type in [SignalType.STRONG_SHORT, SignalType.WEAK_SHORT] and current_price <= take_profit_price):
+            if (signal_type == SignalType.LONG and current_price >= take_profit_price) or \
+               (signal_type == SignalType.SHORT and current_price <= take_profit_price):
                 return current_price, current_time, "TAKE_PROFIT", int(hold_minutes)
             
             # Time-based exit (60 minutes)
@@ -447,11 +447,11 @@ class Backtester:
         sharpe_ratio = np.mean(returns) / np.std(returns) if np.std(returns) > 0 else 0.0
         
         # Enhanced statistics
-        strong_signals = [t for t in trades if t.signal in [SignalType.STRONG_LONG, SignalType.STRONG_SHORT]]
-        weak_signals = [t for t in trades if t.signal in [SignalType.WEAK_LONG, SignalType.WEAK_SHORT]]
+        strong_signals = [t for t in trades if t.signal == SignalType.LONG or t.signal == SignalType.SHORT]
+        weak_signals = []  # 더 이상 WEAK 신호 없음
         
         strong_signal_pnl = sum(t.pnl or 0.0 for t in strong_signals) if strong_signals else 0.0
-        weak_signal_pnl = sum(t.pnl or 0.0 for t in weak_signals) if weak_signals else 0.0
+        weak_signal_pnl = 0.0
         
         stop_loss_count = len([t for t in trades if t.exit_reason == "STOP_LOSS"])
         take_profit_count = len([t for t in trades if t.exit_reason == "TAKE_PROFIT"])
@@ -466,7 +466,7 @@ class Backtester:
             'avg_loss': np.mean([t.pnl for t in trades if t.pnl and t.pnl < 0]) if any(t.pnl and t.pnl < 0 for t in trades) else 0.0,
             'profit_factor': sum(t.pnl for t in winning_trades) / abs(sum(t.pnl for t in trades if t.pnl and t.pnl < 0)) if any(t.pnl and t.pnl < 0 for t in trades) else float('inf'),
             'strong_signals': len(strong_signals),
-            'weak_signals': len(weak_signals),
+            'weak_signals': 0,
             'stop_loss_rate': stop_loss_count / len(trades) if trades else 0.0,
             'take_profit_rate': take_profit_count / len(trades) if trades else 0.0
         }
