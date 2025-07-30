@@ -68,10 +68,15 @@ def setup_components(use_mock: bool = True, news_source: str = "auto") -> tuple:
             price_fetcher = MockPriceFetcher()
         
         try:
-            sentiment_analyzer = VADERSentimentAnalyzer()  # No API key required
+            sentiment_analyzer = FinBERTSentimentAnalyzer()  # Financial-specific BERT
+            print("🧠 Using FinBERT for financial sentiment analysis")
         except Exception as e:
-            print(f"⚠️  VADER sentiment error: {e}, falling back to mock")
-            sentiment_analyzer = MockSentimentAnalyzer()
+            print(f"⚠️  FinBERT error: {e}, falling back to VADER")
+            try:
+                sentiment_analyzer = VADERSentimentAnalyzer()  # No API key required
+            except Exception as e2:
+                print(f"⚠️  VADER sentiment error: {e2}, falling back to mock")
+                sentiment_analyzer = MockSentimentAnalyzer()
     
     # Signal engine (same for both mock and real)
     signal_engine = SignalEngine(
@@ -105,7 +110,7 @@ def run_backtest(symbols: List[str],
     print(f"🔧 Mode: {'Mock' if use_mock else 'Real'} Data")
     
     # Setup components
-    news_fetcher, price_fetcher, sentiment_analyzer, signal_engine = setup_components(use_mock)
+    news_fetcher, price_fetcher, sentiment_analyzer, signal_engine = setup_components(use_mock, news_source)
     
     # Create backtester
     backtester = Backtester(
@@ -177,7 +182,8 @@ def run_backtest(symbols: List[str],
 
 def run_realtime_monitoring(symbols: List[str], 
                           use_mock: bool = True,
-                          monitoring_duration: int = 60) -> None:
+                          monitoring_duration: int = 60,
+                          news_source: str = "auto") -> None:
     """
     Run real-time monitoring mode
     
@@ -193,7 +199,7 @@ def run_realtime_monitoring(symbols: List[str],
     print(f"🔧 Mode: {'Mock' if use_mock else 'Real'} Data")
     
     # Setup components
-    news_fetcher, price_fetcher, sentiment_analyzer, signal_engine = setup_components(use_mock)
+    news_fetcher, price_fetcher, sentiment_analyzer, signal_engine = setup_components(use_mock, news_source)
     
     # Monitoring loop
     end_time = datetime.now() + timedelta(minutes=monitoring_duration)
@@ -323,6 +329,9 @@ Examples:
     parser.add_argument('--no-viz', action='store_true',
                        help='Disable visualizations')
     
+    parser.add_argument('--news-source', choices=['auto', 'finnhub', 'newsapi'],
+                       default='auto', help='Preferred news source (default: auto)')
+    
     args = parser.parse_args()
     
     # Print banner
@@ -351,14 +360,16 @@ Examples:
             start_time=start_time,
             end_time=end_time,
             use_mock=not args.real,
-            visualize=not args.no_viz
+            visualize=not args.no_viz,
+            news_source=args.news_source
         )
     
     elif args.monitor:
         run_realtime_monitoring(
             symbols=args.monitor,
             use_mock=not args.real,
-            monitoring_duration=args.duration
+            monitoring_duration=args.duration,
+            news_source=args.news_source
         )
     
     else:
