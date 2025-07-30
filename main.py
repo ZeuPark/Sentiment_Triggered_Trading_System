@@ -145,6 +145,21 @@ def run_backtest(symbols: List[str],
         print("\n📊 Generating visualizations...")
         visualizer = Visualizer(style='plotly')
         visualizer.plot_backtest_results(result)
+        
+        # Additional visualizations
+        if hasattr(result, 'sentiment_data') and result.sentiment_data:
+            print("📈 Generating sentiment heatmap...")
+            visualizer.plot_sentiment_heatmap(result.sentiment_data)
+        
+        if hasattr(result, 'symbol_signals') and result.symbol_signals:
+            print("📊 Generating market vs symbol analysis...")
+            # Mock market signals for demonstration
+            market_signals = {symbol: signals for symbol, signals in result.symbol_signals.items()}
+            visualizer.plot_market_vs_symbol_signals(
+                result.symbol_signals, 
+                market_signals, 
+                result.price_data
+            )
     
     return result
 

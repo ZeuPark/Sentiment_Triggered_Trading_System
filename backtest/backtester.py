@@ -20,6 +20,7 @@ class Trade:
     pnl: Optional[float] = None
     confidence: float = 0.0
     reasoning: str = ""
+    metadata: Optional[Dict] = None
 
 @dataclass
 class BacktestResult:
@@ -85,6 +86,11 @@ class Backtester:
         
         # Calculate performance metrics
         result = self._calculate_performance(trades)
+        
+        # Store additional data for visualization
+        result.sentiment_data = sentiment_data
+        result.symbol_signals = signals
+        result.price_data = price_data
         
         return result
     
@@ -189,8 +195,11 @@ class Backtester:
         return windows
     
     def _execute_trades(self, signals: Dict[str, List[Dict]], price_data: Dict[str, pd.DataFrame]) -> List[Trade]:
-        """Execute trades based on signals"""
+        """Execute trades based on signals with multiple time horizons"""
         trades = []
+        
+        # Define multiple time horizons for PnL calculation
+        time_horizons = [5, 15, 30, 60]  # minutes
         
         for symbol, signal_list in signals.items():
             if symbol not in price_data:
@@ -218,23 +227,48 @@ class Backtester:
                         reasoning=signal.reasoning
                     )
                     
-                    # Calculate exit price and PnL (simplified - exit after 1 hour)
-                    exit_time = timestamp + timedelta(hours=1)
-                    exit_prices = price_data[symbol][
-                        price_data[symbol]['Timestamp'] >= exit_time
-                    ]
+                    # Calculate PnL for multiple time horizons
+                    pnl_results = {}
                     
-                    if len(exit_prices) > 0:
-                        exit_price = exit_prices.iloc[0]['Close']
-                        trade.exit_price = exit_price
+                    for horizon_minutes in time_horizons:
+                        exit_time = timestamp + timedelta(minutes=horizon_minutes)
+                        exit_prices = price_data[symbol][
+                            price_data[symbol]['Timestamp'] >= exit_time
+                        ]
                         
-                        # Calculate PnL
-                        if signal.signal == SignalType.LONG:
-                            trade.pnl = (exit_price - entry_price) / entry_price
-                        elif signal.signal == SignalType.SHORT:
-                            trade.pnl = (entry_price - exit_price) / entry_price
-                        else:
-                            trade.pnl = 0.0
+                        if len(exit_prices) > 0:
+                            exit_price = exit_prices.iloc[0]['Close']
+                            
+                            # Calculate PnL for this horizon
+                            if signal.signal == SignalType.LONG:
+                                pnl = (exit_price - entry_price) / entry_price
+                            elif signal.signal == SignalType.SHORT:
+                                pnl = (entry_price - exit_price) / entry_price
+                            else:
+                                pnl = 0.0
+                            
+                            pnl_results[f"{horizon_minutes}min"] = {
+                                'exit_price': exit_price,
+                                'pnl': pnl,
+                                'exit_time': exit_time
+                            }
+                    
+                    # Use the primary horizon (60min) for main PnL
+                    if "60min" in pnl_results:
+                        trade.exit_price = pnl_results["60min"]['exit_price']
+                        trade.pnl = pnl_results["60min"]['pnl']
+                    elif pnl_results:
+                        # Use the longest available horizon
+                        longest_horizon = max(pnl_results.keys(), key=lambda x: int(x.replace('min', '')))
+                        trade.exit_price = pnl_results[longest_horizon]['exit_price']
+                        trade.pnl = pnl_results[longest_horizon]['pnl']
+                    
+                    # Store all horizon results in trade metadata
+                    trade.metadata = {
+                        'pnl_horizons': pnl_results,
+                        'signal_strength': signal.confidence,
+                        'relative_sentiment': getattr(signal, 'relative_sentiment', 0.0)
+                    }
                     
                     trades.append(trade)
         

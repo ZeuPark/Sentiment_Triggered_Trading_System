@@ -37,15 +37,25 @@ class FinBERTSentimentAnalyzer(SentimentAnalyzer):
     def _load_model(self):
         """Load the FinBERT model"""
         try:
+            print(f"Loading FinBERT model: {self.model_name}")
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name)
+            
+            # Set model to evaluation mode
+            self.model.eval()
+            
+            # Create pipeline with specific configuration
             self.pipeline = pipeline(
                 "sentiment-analysis",
                 model=self.model,
-                tokenizer=self.tokenizer
+                tokenizer=self.tokenizer,
+                device=0 if torch.cuda.is_available() else -1
             )
+            
+            print("✅ FinBERT model loaded successfully")
+            
         except Exception as e:
-            print(f"Error loading FinBERT model: {e}")
+            print(f"❌ Error loading FinBERT model: {e}")
             print("Falling back to VADER sentiment analyzer")
             self.pipeline = None
     
@@ -57,13 +67,16 @@ class FinBERTSentimentAnalyzer(SentimentAnalyzer):
             return vader.analyze(text)
         
         try:
-            # Truncate text if too long
+            # Clean and truncate text
+            text = self._preprocess_text(text)
+            
             if len(text) > 512:
                 text = text[:512]
             
+            # Get prediction
             result = self.pipeline(text)[0]
             
-            # Map FinBERT labels to sentiment scores
+            # FinBERT specific label mapping
             label_mapping = {
                 'positive': 1.0,
                 'negative': -1.0,
@@ -73,13 +86,73 @@ class FinBERTSentimentAnalyzer(SentimentAnalyzer):
             label = result['label'].lower()
             confidence = result['score']
             
-            # Return weighted sentiment score
+            # Calculate weighted sentiment score
             base_score = label_mapping.get(label, 0.0)
-            return base_score * confidence
+            weighted_score = base_score * confidence
+            
+            # Apply confidence threshold
+            if confidence < 0.3:
+                weighted_score *= 0.5  # Reduce impact of low confidence predictions
+            
+            return weighted_score
             
         except Exception as e:
             print(f"Error in FinBERT analysis: {e}")
             return 0.0
+    
+    def _preprocess_text(self, text: str) -> str:
+        """Preprocess text for FinBERT analysis"""
+        import re
+        
+        # Remove special characters but keep important financial terms
+        text = re.sub(r'[^\w\s\.\,\!\?\-\$\%]', '', text)
+        
+        # Normalize whitespace
+        text = ' '.join(text.split())
+        
+        # Add financial context if missing
+        if not any(word in text.lower() for word in ['stock', 'price', 'market', 'earnings', 'revenue']):
+            text = f"stock market news: {text}"
+        
+        return text
+    
+    def analyze_batch(self, texts: List[str]) -> List[float]:
+        """Analyze multiple texts efficiently"""
+        if self.pipeline is None:
+            return super().analyze_batch(texts)
+        
+        try:
+            # Preprocess all texts
+            processed_texts = [self._preprocess_text(text) for text in texts]
+            
+            # Batch prediction
+            results = self.pipeline(processed_texts)
+            
+            # Process results
+            scores = []
+            for result in results:
+                label = result['label'].lower()
+                confidence = result['score']
+                
+                label_mapping = {
+                    'positive': 1.0,
+                    'negative': -1.0,
+                    'neutral': 0.0
+                }
+                
+                base_score = label_mapping.get(label, 0.0)
+                weighted_score = base_score * confidence
+                
+                if confidence < 0.3:
+                    weighted_score *= 0.5
+                
+                scores.append(weighted_score)
+            
+            return scores
+            
+        except Exception as e:
+            print(f"Error in batch FinBERT analysis: {e}")
+            return [0.0] * len(texts)
 
 class VADERSentimentAnalyzer(SentimentAnalyzer):
     """VADER implementation for sentiment analysis"""

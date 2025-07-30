@@ -110,10 +110,12 @@ class SignalEngine:
                        price_trend: str, 
                        volume_signal: str) -> Tuple[SignalType, float, str]:
         """
-        Apply Zeu's core strategy:
-        1. 상대감정 ≥ 1.0 and 하락 추세 → SHORT
-        2. 상대감정 ≤ -1.0 and 상승 추세 → LONG
-        3. Otherwise → HOLD
+        Apply enhanced Zeu's strategy with relative sentiment analysis:
+        1. 상대감정 ≥ 1.0 and 하락 추세 → SHORT (강한 긍정 감정 + 하락 = 숏)
+        2. 상대감정 ≤ -1.0 and 상승 추세 → LONG (강한 부정 감정 + 상승 = 롱)
+        3. 상대감정 ≥ 0.5 and 중립/하락 → WEAK_SHORT
+        4. 상대감정 ≤ -0.5 and 중립/상승 → WEAK_LONG
+        5. Otherwise → HOLD
         """
         
         # Calculate confidence based on sentiment strength and trend alignment
@@ -122,32 +124,48 @@ class SignalEngine:
         
         reasoning_parts = []
         
-        # SHORT Signal Logic
+        # Strong SHORT Signal Logic (상대감정 ≥ 1.0 and 하락 추세)
         if relative_sentiment >= self.sentiment_threshold and price_trend == "DOWNTREND":
             signal = SignalType.SHORT
             trend_alignment = 1.0
-            reasoning_parts.append(f"Strong positive sentiment ({relative_sentiment:.2f}) with downtrend")
+            reasoning_parts.append(f"STRONG SHORT: High positive sentiment ({relative_sentiment:.2f}) with clear downtrend")
             
-        # LONG Signal Logic  
+        # Strong LONG Signal Logic (상대감정 ≤ -1.0 and 상승 추세)
         elif relative_sentiment <= -self.sentiment_threshold and price_trend == "UPTREND":
             signal = SignalType.LONG
             trend_alignment = 1.0
-            reasoning_parts.append(f"Strong negative sentiment ({relative_sentiment:.2f}) with uptrend")
+            reasoning_parts.append(f"STRONG LONG: High negative sentiment ({relative_sentiment:.2f}) with clear uptrend")
+            
+        # Weak SHORT Signal Logic (상대감정 ≥ 0.5 and 중립/하락)
+        elif relative_sentiment >= 0.5 and price_trend in ["DOWNTREND", "NEUTRAL"]:
+            signal = SignalType.SHORT
+            trend_alignment = 0.7 if price_trend == "DOWNTREND" else 0.3
+            reasoning_parts.append(f"WEAK SHORT: Moderate positive sentiment ({relative_sentiment:.2f}) with {price_trend.lower()}")
+            
+        # Weak LONG Signal Logic (상대감정 ≤ -0.5 and 중립/상승)
+        elif relative_sentiment <= -0.5 and price_trend in ["UPTREND", "NEUTRAL"]:
+            signal = SignalType.LONG
+            trend_alignment = 0.7 if price_trend == "UPTREND" else 0.3
+            reasoning_parts.append(f"WEAK LONG: Moderate negative sentiment ({relative_sentiment:.2f}) with {price_trend.lower()}")
             
         # HOLD Signal Logic
         else:
             signal = SignalType.HOLD
-            if abs(relative_sentiment) < self.sentiment_threshold:
-                reasoning_parts.append(f"Weak sentiment ({relative_sentiment:.2f})")
+            if abs(relative_sentiment) < 0.5:
+                reasoning_parts.append(f"NEUTRAL: Weak sentiment ({relative_sentiment:.2f})")
             else:
-                reasoning_parts.append(f"Sentiment ({relative_sentiment:.2f}) not aligned with trend ({price_trend})")
+                reasoning_parts.append(f"CONFLICT: Sentiment ({relative_sentiment:.2f}) conflicts with trend ({price_trend})")
         
         # Add volume analysis to reasoning
         if volume_signal != "NORMAL_VOLUME":
             reasoning_parts.append(f"Volume: {volume_signal}")
+            if volume_signal == "HIGH_VOLUME":
+                trend_alignment *= 1.2  # Boost confidence with high volume
+            elif volume_signal == "LOW_VOLUME":
+                trend_alignment *= 0.8  # Reduce confidence with low volume
         
-        # Calculate confidence
-        confidence = min(1.0, sentiment_strength * 0.6 + trend_alignment * 0.4)
+        # Calculate confidence with enhanced formula
+        confidence = min(1.0, sentiment_strength * 0.5 + trend_alignment * 0.4 + (1.0 if volume_signal == "HIGH_VOLUME" else 0.5) * 0.1)
         
         reasoning = " | ".join(reasoning_parts)
         

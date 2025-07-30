@@ -344,6 +344,25 @@ class Visualizer:
         else:
             self._plot_signal_analysis_matplotlib(signals, price_data)
     
+    def plot_market_vs_symbol_signals(self, 
+                                    symbol_signals: Dict[str, List], 
+                                    market_signals: Dict[str, List],
+                                    price_data: Dict[str, pd.DataFrame]) -> None:
+        """Plot comparison between individual symbol signals and market-wide signals"""
+        
+        if self.style == 'plotly':
+            self._plot_market_vs_symbol_signals_plotly(symbol_signals, market_signals, price_data)
+        else:
+            self._plot_market_vs_symbol_signals_matplotlib(symbol_signals, market_signals, price_data)
+    
+    def plot_sentiment_heatmap(self, sentiment_data: Dict[str, List[Dict]]) -> None:
+        """Plot sentiment heatmap across symbols and time"""
+        
+        if self.style == 'plotly':
+            self._plot_sentiment_heatmap_plotly(sentiment_data)
+        else:
+            self._plot_sentiment_heatmap_matplotlib(sentiment_data)
+    
     def _plot_signal_analysis_plotly(self, signals: Dict[str, List], price_data: Dict[str, pd.DataFrame]):
         """Plot signal analysis using Plotly"""
         
@@ -437,6 +456,276 @@ class Visualizer:
             
             ax.set_title(f'{symbol} - Price and Signals')
             ax.grid(True)
+        
+        plt.tight_layout()
+        plt.show() 
+    
+    def _plot_market_vs_symbol_signals_plotly(self, symbol_signals: Dict[str, List], 
+                                            market_signals: Dict[str, List], 
+                                            price_data: Dict[str, pd.DataFrame]):
+        """Plot market vs symbol signals comparison using Plotly"""
+        
+        # Create subplots for each symbol
+        symbols = list(symbol_signals.keys())
+        fig = make_subplots(
+            rows=len(symbols), cols=2,
+            subplot_titles=[f"{symbol} Price & Signals" for symbol in symbols] + 
+                          [f"{symbol} vs Market Sentiment" for symbol in symbols],
+            specs=[[{"secondary_y": False}, {"secondary_y": True}] for _ in symbols]
+        )
+        
+        for i, symbol in enumerate(symbols):
+            if symbol not in price_data:
+                continue
+            
+            # Plot 1: Price and signals
+            fig.add_trace(
+                go.Scatter(
+                    x=price_data[symbol]['Timestamp'],
+                    y=price_data[symbol]['Close'],
+                    mode='lines',
+                    name=f'{symbol} Price',
+                    line=dict(color='blue')
+                ),
+                row=i+1, col=1
+            )
+            
+            # Add symbol signals
+            for signal_info in symbol_signals[symbol]:
+                timestamp = signal_info['timestamp']
+                signal = signal_info['signal']
+                
+                price_at_signal = price_data[symbol][price_data[symbol]['Timestamp'] >= timestamp]
+                if len(price_at_signal) > 0:
+                    price = price_at_signal.iloc[0]['Close']
+                    
+                    color_map = {'LONG': 'green', 'SHORT': 'red', 'HOLD': 'gray'}
+                    marker_map = {'LONG': 'triangle-up', 'SHORT': 'triangle-down', 'HOLD': 'circle'}
+                    
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[timestamp],
+                            y=[price],
+                            mode='markers',
+                            name=f'{signal.signal.value} Signal',
+                            marker=dict(
+                                symbol=marker_map.get(signal.signal.value, 'circle'),
+                                size=10,
+                                color=color_map.get(signal.signal.value, 'gray')
+                            ),
+                            showlegend=False
+                        ),
+                        row=i+1, col=1
+                    )
+            
+            # Plot 2: Sentiment comparison
+            if symbol in market_signals:
+                symbol_sentiments = []
+                market_sentiments = []
+                timestamps = []
+                
+                for signal_info in symbol_signals[symbol]:
+                    timestamp = signal_info['timestamp']
+                    symbol_sentiment = getattr(signal_info['signal'], 'symbol_sentiment', 0.0)
+                    market_sentiment = getattr(signal_info['signal'], 'market_sentiment', 0.0)
+                    
+                    symbol_sentiments.append(symbol_sentiment)
+                    market_sentiments.append(market_sentiment)
+                    timestamps.append(timestamp)
+                
+                if timestamps:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=timestamps,
+                            y=symbol_sentiments,
+                            mode='lines+markers',
+                            name=f'{symbol} Sentiment',
+                            line=dict(color='red'),
+                            marker=dict(size=6)
+                        ),
+                        row=i+1, col=2
+                    )
+                    
+                    fig.add_trace(
+                        go.Scatter(
+                            x=timestamps,
+                            y=market_sentiments,
+                            mode='lines+markers',
+                            name='Market Sentiment',
+                            line=dict(color='blue'),
+                            marker=dict(size=6)
+                        ),
+                        row=i+1, col=2
+                    )
+        
+        fig.update_layout(
+            title='Market vs Symbol Signal Analysis',
+            height=300 * len(symbols),
+            showlegend=True
+        )
+        
+        fig.show()
+    
+    def _plot_market_vs_symbol_signals_matplotlib(self, symbol_signals: Dict[str, List], 
+                                                market_signals: Dict[str, List], 
+                                                price_data: Dict[str, pd.DataFrame]):
+        """Plot market vs symbol signals comparison using Matplotlib"""
+        
+        symbols = list(symbol_signals.keys())
+        fig, axes = plt.subplots(len(symbols), 2, figsize=(15, 5 * len(symbols)))
+        
+        if len(symbols) == 1:
+            axes = axes.reshape(1, -1)
+        
+        for i, symbol in enumerate(symbols):
+            if symbol not in price_data:
+                continue
+            
+            # Plot 1: Price and signals
+            ax1 = axes[i, 0]
+            ax1.plot(price_data[symbol]['Timestamp'], price_data[symbol]['Close'], 'b-', linewidth=1)
+            
+            # Add signals
+            for signal_info in symbol_signals[symbol]:
+                timestamp = signal_info['timestamp']
+                signal = signal_info['signal']
+                
+                price_at_signal = price_data[symbol][price_data[symbol]['Timestamp'] >= timestamp]
+                if len(price_at_signal) > 0:
+                    price = price_at_signal.iloc[0]['Close']
+                    
+                    color_map = {'LONG': 'green', 'SHORT': 'red', 'HOLD': 'gray'}
+                    marker_map = {'LONG': '^', 'SHORT': 'v', 'HOLD': 'o'}
+                    
+                    ax1.scatter(timestamp, price, 
+                              color=color_map.get(signal.signal.value, 'gray'),
+                              marker=marker_map.get(signal.signal.value, 'o'),
+                              s=100, zorder=5)
+            
+            ax1.set_title(f'{symbol} - Price and Signals')
+            ax1.grid(True)
+            
+            # Plot 2: Sentiment comparison
+            ax2 = axes[i, 1]
+            
+            if symbol in market_signals:
+                timestamps = []
+                symbol_sentiments = []
+                market_sentiments = []
+                
+                for signal_info in symbol_signals[symbol]:
+                    timestamp = signal_info['timestamp']
+                    symbol_sentiment = getattr(signal_info['signal'], 'symbol_sentiment', 0.0)
+                    market_sentiment = getattr(signal_info['signal'], 'market_sentiment', 0.0)
+                    
+                    timestamps.append(timestamp)
+                    symbol_sentiments.append(symbol_sentiment)
+                    market_sentiments.append(market_sentiment)
+                
+                if timestamps:
+                    ax2.plot(timestamps, symbol_sentiments, 'r-o', label=f'{symbol} Sentiment')
+                    ax2.plot(timestamps, market_sentiments, 'b-s', label='Market Sentiment')
+                    ax2.axhline(y=0, color='black', linestyle='--', alpha=0.5)
+                    ax2.legend()
+                    ax2.grid(True)
+            
+            ax2.set_title(f'{symbol} - Sentiment Comparison')
+        
+        plt.tight_layout()
+        plt.show()
+    
+    def _plot_sentiment_heatmap_plotly(self, sentiment_data: Dict[str, List[Dict]]):
+        """Plot sentiment heatmap using Plotly"""
+        
+        # Prepare data for heatmap
+        all_timestamps = set()
+        for symbol_data in sentiment_data.values():
+            for item in symbol_data:
+                all_timestamps.add(item['timestamp'].replace(minute=0, second=0, microsecond=0))
+        
+        timestamps = sorted(list(all_timestamps))
+        symbols = list(sentiment_data.keys())
+        
+        # Create sentiment matrix
+        sentiment_matrix = []
+        for symbol in symbols:
+            symbol_sentiments = []
+            for timestamp in timestamps:
+                # Find sentiment for this timestamp
+                sentiment = 0.0
+                for item in sentiment_data[symbol]:
+                    if item['timestamp'].replace(minute=0, second=0, microsecond=0) == timestamp:
+                        sentiment = item.get('sentiment_score', 0.0)
+                        break
+                symbol_sentiments.append(sentiment)
+            sentiment_matrix.append(symbol_sentiments)
+        
+        # Create heatmap
+        fig = go.Figure(data=go.Heatmap(
+            z=sentiment_matrix,
+            x=timestamps,
+            y=symbols,
+            colorscale='RdYlGn',
+            zmid=0,
+            text=[[f"{val:.3f}" for val in row] for row in sentiment_matrix],
+            texttemplate="%{text}",
+            textfont={"size": 10},
+            hoverongaps=False
+        ))
+        
+        fig.update_layout(
+            title='Sentiment Heatmap Across Symbols and Time',
+            xaxis_title='Time',
+            yaxis_title='Symbols',
+            height=400
+        )
+        
+        fig.show()
+    
+    def _plot_sentiment_heatmap_matplotlib(self, sentiment_data: Dict[str, List[Dict]]):
+        """Plot sentiment heatmap using Matplotlib"""
+        
+        # Prepare data for heatmap
+        all_timestamps = set()
+        for symbol_data in sentiment_data.values():
+            for item in symbol_data:
+                all_timestamps.add(item['timestamp'].replace(minute=0, second=0, microsecond=0))
+        
+        timestamps = sorted(list(all_timestamps))
+        symbols = list(sentiment_data.keys())
+        
+        # Create sentiment matrix
+        sentiment_matrix = []
+        for symbol in symbols:
+            symbol_sentiments = []
+            for timestamp in timestamps:
+                # Find sentiment for this timestamp
+                sentiment = 0.0
+                for item in sentiment_data[symbol]:
+                    if item['timestamp'].replace(minute=0, second=0, microsecond=0) == timestamp:
+                        sentiment = item.get('sentiment_score', 0.0)
+                        break
+                symbol_sentiments.append(sentiment)
+            sentiment_matrix.append(symbol_sentiments)
+        
+        # Create heatmap
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        im = ax.imshow(sentiment_matrix, cmap='RdYlGn', aspect='auto', vmin=-1, vmax=1)
+        
+        # Set labels
+        ax.set_xticks(range(len(timestamps)))
+        ax.set_xticklabels([t.strftime('%m-%d %H:%M') for t in timestamps], rotation=45)
+        ax.set_yticks(range(len(symbols)))
+        ax.set_yticklabels(symbols)
+        
+        # Add colorbar
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.set_label('Sentiment Score')
+        
+        ax.set_title('Sentiment Heatmap Across Symbols and Time')
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Symbols')
         
         plt.tight_layout()
         plt.show() 
