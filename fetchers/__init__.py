@@ -1,0 +1,1 @@
+# Fetchers package for SentimentTriggeredTradingSystem 
