@@ -21,12 +21,13 @@ from engine.signal_engine import SignalEngine
 from backtest.backtester import Backtester
 from visualizer import Visualizer
 
-def setup_components(use_mock: bool = True) -> tuple:
+def setup_components(use_mock: bool = True, news_source: str = "auto") -> tuple:
     """
     Setup all system components
     
     Args:
         use_mock: Whether to use mock data for testing
+        news_source: News source preference ("auto", "finnhub", "newsapi")
         
     Returns:
         Tuple of (news_fetcher, price_fetcher, sentiment_analyzer, signal_engine)
@@ -44,11 +45,21 @@ def setup_components(use_mock: bool = True) -> tuple:
         print("🔧 Setting up components with REAL APIs...")
         
         # Real components (requires API keys)
-        try:
-            news_fetcher = NewsAPIFetcher()  # Requires NEWS_API_KEY
-        except ValueError:
-            print("⚠️  NewsAPI key not found, falling back to mock")
-            news_fetcher = MockNewsFetcher()
+        if news_source == "finnhub":
+            try:
+                news_fetcher = FinnhubNewsFetcher()  # Requires FINNHUB_API_KEY
+                print("📰 Using Finnhub for financial news")
+            except ValueError:
+                print("⚠️  Finnhub API key not found, falling back to NewsAPI")
+                news_source = "newsapi"
+        
+        if news_source in ["auto", "newsapi"]:
+            try:
+                news_fetcher = NewsAPIFetcher()  # Requires NEWS_API_KEY
+                print("📰 Using NewsAPI for general news")
+            except ValueError:
+                print("⚠️  NewsAPI key not found, falling back to mock")
+                news_fetcher = MockNewsFetcher()
         
         try:
             price_fetcher = YahooFinanceFetcher()  # No API key required
@@ -75,7 +86,8 @@ def run_backtest(symbols: List[str],
                 start_time: datetime, 
                 end_time: datetime,
                 use_mock: bool = True,
-                visualize: bool = True) -> None:
+                visualize: bool = True,
+                news_source: str = "auto") -> None:
     """
     Run backtest simulation
     

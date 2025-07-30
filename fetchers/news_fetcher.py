@@ -78,12 +78,12 @@ class FinnhubNewsFetcher(NewsFetcher):
     def fetch_news(self, symbol: str, start_time: datetime, end_time: datetime) -> List[Dict]:
         """Fetch news from Finnhub"""
         try:
-            # Convert to Unix timestamp
-            start_ts = int(start_time.timestamp())
-            end_ts = int(end_time.timestamp())
+            # Convert to date format YYYY-MM-DD
+            start_date = start_time.strftime('%Y-%m-%d')
+            end_date = end_time.strftime('%Y-%m-%d')
             
             # Get company news
-            news = self.client.company_news(symbol, start_ts, end_ts)
+            news = self.client.company_news(symbol, start_date, end_date)
             
             news_list = []
             for article in news:
