@@ -13,4 +13,6 @@ scikit-learn>=1.0.0
 vaderSentiment>=3.3.0
 newsapi-python>=0.2.0
 finnhub-python>=2.4.0
-twelvedata>=1.0.0 
+twelvedata>=1.0.0
+streamlit>=1.28.0
+alpaca-trade-api>=3.0.0 

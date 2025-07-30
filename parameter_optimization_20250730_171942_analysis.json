@@ -1,0 +1,168 @@
+{
+  "best_total_pnl": {
+    "params": {
+      "sentiment_threshold": 0.2,
+      "news_confidence_threshold": 0.5,
+      "strong_signal_threshold": 0.7,
+      "stop_loss_pct": 0.02,
+      "take_profit_pct": 0.04,
+      "total_trades": 0.0,
+      "avg_trade_pnl": 0.0,
+      "max_drawdown": 0.0,
+      "strong_signal_pnl": 0.0,
+      "weak_signal_pnl": 0.0,
+      "stop_loss_count": 0.0,
+      "take_profit_count": 0.0,
+      "avg_hold_time": 0.0,
+      "strong_signals": 0.0,
+      "weak_signals": 0.0
+    },
+    "performance": {
+      "total_pnl": 0.0,
+      "sharpe_ratio": 0.0,
+      "win_rate": 0.0,
+      "profit_factor": 0.0
+    }
+  },
+  "best_sharpe_ratio": {
+    "params": {
+      "sentiment_threshold": 0.2,
+      "news_confidence_threshold": 0.5,
+      "strong_signal_threshold": 0.7,
+      "stop_loss_pct": 0.02,
+      "take_profit_pct": 0.04,
+      "total_trades": 0.0,
+      "avg_trade_pnl": 0.0,
+      "max_drawdown": 0.0,
+      "strong_signal_pnl": 0.0,
+      "weak_signal_pnl": 0.0,
+      "stop_loss_count": 0.0,
+      "take_profit_count": 0.0,
+      "avg_hold_time": 0.0,
+      "strong_signals": 0.0,
+      "weak_signals": 0.0
+    },
+    "performance": {
+      "total_pnl": 0.0,
+      "sharpe_ratio": 0.0,
+      "win_rate": 0.0,
+      "profit_factor": 0.0
+    }
+  },
+  "best_win_rate": {
+    "params": {
+      "sentiment_threshold": 0.2,
+      "news_confidence_threshold": 0.5,
+      "strong_signal_threshold": 0.7,
+      "stop_loss_pct": 0.02,
+      "take_profit_pct": 0.04,
+      "total_trades": 0.0,
+      "avg_trade_pnl": 0.0,
+      "max_drawdown": 0.0,
+      "strong_signal_pnl": 0.0,
+      "weak_signal_pnl": 0.0,
+      "stop_loss_count": 0.0,
+      "take_profit_count": 0.0,
+      "avg_hold_time": 0.0,
+      "strong_signals": 0.0,
+      "weak_signals": 0.0
+    },
+    "performance": {
+      "total_pnl": 0.0,
+      "sharpe_ratio": 0.0,
+      "win_rate": 0.0,
+      "profit_factor": 0.0
+    }
+  },
+  "best_profit_factor": {
+    "params": {
+      "sentiment_threshold": 0.2,
+      "news_confidence_threshold": 0.5,
+      "strong_signal_threshold": 0.7,
+      "stop_loss_pct": 0.02,
+      "take_profit_pct": 0.04,
+      "total_trades": 0.0,
+      "avg_trade_pnl": 0.0,
+      "max_drawdown": 0.0,
+      "strong_signal_pnl": 0.0,
+      "weak_signal_pnl": 0.0,
+      "stop_loss_count": 0.0,
+      "take_profit_count": 0.0,
+      "avg_hold_time": 0.0,
+      "strong_signals": 0.0,
+      "weak_signals": 0.0
+    },
+    "performance": {
+      "total_pnl": 0.0,
+      "sharpe_ratio": 0.0,
+      "win_rate": 0.0,
+      "profit_factor": 0.0
+    }
+  },
+  "parameter_sensitivity": {
+    "sentiment_threshold": {
+      "total_pnl": NaN,
+      "sharpe_ratio": NaN,
+      "win_rate": NaN,
+      "profit_factor": NaN
+    },
+    "news_confidence_threshold": {
+      "total_pnl": NaN,
+      "sharpe_ratio": NaN,
+      "win_rate": NaN,
+      "profit_factor": NaN
+    },
+    "strong_signal_threshold": {
+      "total_pnl": NaN,
+      "sharpe_ratio": NaN,
+      "win_rate": NaN,
+      "profit_factor": NaN
+    },
+    "stop_loss_pct": {
+      "total_pnl": NaN,
+      "sharpe_ratio": NaN,
+      "win_rate": NaN,
+      "profit_factor": NaN
+    },
+    "take_profit_pct": {
+      "total_pnl": NaN,
+      "sharpe_ratio": NaN,
+      "win_rate": NaN,
+      "profit_factor": NaN
+    },
+    "avg_trade_pnl": {
+      "total_pnl": NaN,
+      "sharpe_ratio": NaN,
+      "win_rate": NaN,
+      "profit_factor": NaN
+    },
+    "max_drawdown": {
+      "total_pnl": NaN,
+      "sharpe_ratio": NaN,
+      "win_rate": NaN,
+      "profit_factor": NaN
+    },
+    "strong_signal_pnl": {
+      "total_pnl": NaN,
+      "sharpe_ratio": NaN,
+      "win_rate": NaN,
+      "profit_factor": NaN
+    },
+    "weak_signal_pnl": {
+      "total_pnl": NaN,
+      "sharpe_ratio": NaN,
+      "win_rate": NaN,
+      "profit_factor": NaN
+    }
+  },
+  "summary": {
+    "total_combinations": 243,
+    "avg_pnl": 0.0,
+    "best_pnl": 0.0,
+    "worst_pnl": 0.0,
+    "avg_sharpe": 0.0,
+    "best_sharpe": 0.0,
+    "profitable_combinations": "0",
+    "profitable_rate": 0.0
+  }
+}

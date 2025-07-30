@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from enum import Enum
 
 class SignalType(Enum):
-    LONG = "LONG"
-    SHORT = "SHORT"
+    STRONG_LONG = "STRONG_LONG"
+    STRONG_SHORT = "STRONG_SHORT"
+    WEAK_LONG = "WEAK_LONG"
+    WEAK_SHORT = "WEAK_SHORT"
     HOLD = "HOLD"
 
 @dataclass
@@ -19,26 +21,49 @@ class SignalResult:
     relative_sentiment: float
     price_trend: str
     reasoning: str
+    signal_score: float  # New field for signal strength scoring
 
 class SignalEngine:
-    """Core signal generation engine implementing Zeu's strategy"""
+    """Enhanced signal generation engine with scoring system"""
     
     def __init__(self, 
-                 sentiment_threshold: float = 1.0,
+                 sentiment_threshold: float = 0.3,
                  trend_lookback_periods: int = 5,
-                 volume_threshold: float = 1.5):
+                 volume_threshold: float = 1.2,
+                 news_confidence_threshold: float = 0.6,
+                 price_movement_threshold: float = 0.005,
+                 strong_signal_threshold: float = 0.8,  # New parameter for STRONG signals
+                 price_momentum_weight: float = 0.3):   # Weight for price momentum in scoring
+        """
+        Initialize SignalEngine with enhanced scoring system
+        
+        Args:
+            sentiment_threshold: Lower threshold for more sensitive signal generation (0.3)
+            trend_lookback_periods: Number of periods to analyze price trend
+            volume_threshold: Volume threshold for volume analysis (1.2)
+            news_confidence_threshold: Minimum news confidence for signal generation (0.6)
+            price_movement_threshold: Minimum price movement required for entry (0.5%)
+            strong_signal_threshold: Threshold for STRONG signal classification (0.8)
+            price_momentum_weight: Weight for price momentum in signal scoring (0.3)
+        """
         self.sentiment_threshold = sentiment_threshold
         self.trend_lookback_periods = trend_lookback_periods
         self.volume_threshold = volume_threshold
+        self.news_confidence_threshold = news_confidence_threshold
+        self.price_movement_threshold = price_movement_threshold
+        self.strong_signal_threshold = strong_signal_threshold
+        self.price_momentum_weight = price_momentum_weight
     
     def decide(self, 
                symbol_sentiment: float, 
                market_sentiment: float, 
-               price_df: pd.DataFrame) -> SignalResult:
+               price_df: pd.DataFrame,
+               news_confidence: float = 0.8) -> SignalResult:
         """
-        Core decision logic based on Zeu's strategy:
-        - 상대감정 ≥ 1.0 and 하락 추세 → SHORT
-        - 상대감정 ≤ -1.0 and 상승 추세 → LONG
+        Enhanced decision logic with signal scoring system:
+        - Calculate signal score = relative_sentiment * news_confidence * price_momentum
+        - Score >= 0.8 → STRONG signals
+        - Score >= 0.3 → WEAK signals
         - Otherwise → HOLD
         """
         
@@ -51,9 +76,16 @@ class SignalEngine:
         # Analyze volume
         volume_signal = self._analyze_volume(price_df)
         
-        # Core decision logic
-        signal, confidence, reasoning = self._apply_strategy(
-            relative_sentiment, price_trend, volume_signal
+        # Analyze price movement for entry timing
+        price_movement = self._analyze_price_movement(price_df)
+        
+        # Calculate price momentum (recent price change)
+        price_momentum = self._calculate_price_momentum(price_df)
+        
+        # Enhanced decision logic with signal scoring
+        signal, confidence, reasoning, signal_score = self._apply_enhanced_strategy_with_scoring(
+            relative_sentiment, price_trend, volume_signal, price_movement, 
+            news_confidence, price_momentum
         )
         
         return SignalResult(
@@ -63,8 +95,23 @@ class SignalEngine:
             market_sentiment=market_sentiment,
             relative_sentiment=relative_sentiment,
             price_trend=price_trend,
-            reasoning=reasoning
+            reasoning=reasoning,
+            signal_score=signal_score
         )
+    
+    def _calculate_price_momentum(self, price_df: pd.DataFrame) -> float:
+        """Calculate price momentum based on recent price changes"""
+        if len(price_df) < 3:
+            return 0.0
+        
+        # Calculate momentum as the rate of change over the last 3 periods
+        recent_prices = price_df['Close'].tail(3).values
+        momentum = (recent_prices[-1] - recent_prices[0]) / recent_prices[0]
+        
+        # Normalize momentum to 0-1 range
+        normalized_momentum = min(1.0, abs(momentum) * 10)  # Scale by 10 for better sensitivity
+        
+        return normalized_momentum
     
     def _analyze_price_trend(self, price_df: pd.DataFrame) -> str:
         """Analyze price trend over recent periods"""
@@ -105,18 +152,36 @@ class SignalEngine:
         else:
             return "NORMAL_VOLUME"
     
-    def _apply_strategy(self, 
-                       relative_sentiment: float, 
-                       price_trend: str, 
-                       volume_signal: str) -> Tuple[SignalType, float, str]:
+    def _analyze_price_movement(self, price_df: pd.DataFrame) -> str:
+        """Analyze price movement for entry timing"""
+        if len(price_df) < 2:
+            return "NEUTRAL"
+        
+        recent_prices = price_df['Close'].tail(2).values
+        price_change = (recent_prices[-1] - recent_prices[0]) / recent_prices[0]
+        
+        if abs(price_change) < self.price_movement_threshold:
+            return "LOW_MOVEMENT"
+        else:
+            return "HIGH_MOVEMENT"
+    
+    def _apply_enhanced_strategy_with_scoring(self, 
+                                            relative_sentiment: float, 
+                                            price_trend: str, 
+                                            volume_signal: str, 
+                                            price_movement: str, 
+                                            news_confidence: float,
+                                            price_momentum: float) -> Tuple[SignalType, float, str, float]:
         """
-        Apply enhanced Zeu's strategy with relative sentiment analysis:
-        1. 상대감정 ≥ 1.0 and 하락 추세 → SHORT (강한 긍정 감정 + 하락 = 숏)
-        2. 상대감정 ≤ -1.0 and 상승 추세 → LONG (강한 부정 감정 + 상승 = 롱)
-        3. 상대감정 ≥ 0.5 and 중립/하락 → WEAK_SHORT
-        4. 상대감정 ≤ -0.5 and 중립/상승 → WEAK_LONG
-        5. Otherwise → HOLD
+        Apply enhanced strategy with signal scoring system:
+        1. Calculate signal score = relative_sentiment * news_confidence * price_momentum
+        2. Score >= 0.8 → STRONG signals
+        3. Score >= 0.3 → WEAK signals
+        4. Otherwise → HOLD
         """
+        
+        # Calculate signal score
+        signal_score = abs(relative_sentiment) * news_confidence * (1 + price_momentum * self.price_momentum_weight)
         
         # Calculate confidence based on sentiment strength and trend alignment
         sentiment_strength = abs(relative_sentiment)
@@ -124,37 +189,52 @@ class SignalEngine:
         
         reasoning_parts = []
         
-        # Strong SHORT Signal Logic (상대감정 ≥ 1.0 and 하락 추세)
-        if relative_sentiment >= self.sentiment_threshold and price_trend == "DOWNTREND":
-            signal = SignalType.SHORT
-            trend_alignment = 1.0
-            reasoning_parts.append(f"STRONG SHORT: High positive sentiment ({relative_sentiment:.2f}) with clear downtrend")
-            
-        # Strong LONG Signal Logic (상대감정 ≤ -1.0 and 상승 추세)
-        elif relative_sentiment <= -self.sentiment_threshold and price_trend == "UPTREND":
-            signal = SignalType.LONG
-            trend_alignment = 1.0
-            reasoning_parts.append(f"STRONG LONG: High negative sentiment ({relative_sentiment:.2f}) with clear uptrend")
-            
-        # Weak SHORT Signal Logic (상대감정 ≥ 0.5 and 중립/하락)
-        elif relative_sentiment >= 0.5 and price_trend in ["DOWNTREND", "NEUTRAL"]:
-            signal = SignalType.SHORT
-            trend_alignment = 0.7 if price_trend == "DOWNTREND" else 0.3
-            reasoning_parts.append(f"WEAK SHORT: Moderate positive sentiment ({relative_sentiment:.2f}) with {price_trend.lower()}")
-            
-        # Weak LONG Signal Logic (상대감정 ≤ -0.5 and 중립/상승)
-        elif relative_sentiment <= -0.5 and price_trend in ["UPTREND", "NEUTRAL"]:
-            signal = SignalType.LONG
-            trend_alignment = 0.7 if price_trend == "UPTREND" else 0.3
-            reasoning_parts.append(f"WEAK LONG: Moderate negative sentiment ({relative_sentiment:.2f}) with {price_trend.lower()}")
-            
-        # HOLD Signal Logic
-        else:
-            signal = SignalType.HOLD
-            if abs(relative_sentiment) < 0.5:
-                reasoning_parts.append(f"NEUTRAL: Weak sentiment ({relative_sentiment:.2f})")
+        # Determine signal type based on score and conditions
+        if signal_score >= self.strong_signal_threshold:
+            # STRONG signals
+            if relative_sentiment >= self.sentiment_threshold and price_trend == "DOWNTREND":
+                signal = SignalType.STRONG_SHORT
+                trend_alignment = 1.0
+                reasoning_parts.append(f"STRONG SHORT: High score ({signal_score:.2f}) with clear downtrend")
+            elif relative_sentiment <= -self.sentiment_threshold and price_trend == "UPTREND":
+                signal = SignalType.STRONG_LONG
+                trend_alignment = 1.0
+                reasoning_parts.append(f"STRONG LONG: High score ({signal_score:.2f}) with clear uptrend")
+            elif relative_sentiment >= self.sentiment_threshold:
+                signal = SignalType.STRONG_SHORT
+                trend_alignment = 0.8
+                reasoning_parts.append(f"STRONG SHORT: High score ({signal_score:.2f}) with positive sentiment")
+            elif relative_sentiment <= -self.sentiment_threshold:
+                signal = SignalType.STRONG_LONG
+                trend_alignment = 0.8
+                reasoning_parts.append(f"STRONG LONG: High score ({signal_score:.2f}) with negative sentiment")
             else:
-                reasoning_parts.append(f"CONFLICT: Sentiment ({relative_sentiment:.2f}) conflicts with trend ({price_trend})")
+                signal = SignalType.HOLD
+                reasoning_parts.append(f"HOLD: High score but conflicting conditions")
+                
+        elif signal_score >= self.sentiment_threshold:
+            # WEAK signals
+            if relative_sentiment >= self.sentiment_threshold and price_trend in ["DOWNTREND", "NEUTRAL"]:
+                signal = SignalType.WEAK_SHORT
+                trend_alignment = 0.7 if price_trend == "DOWNTREND" else 0.3
+                reasoning_parts.append(f"WEAK SHORT: Moderate score ({signal_score:.2f}) with {price_trend.lower()}")
+            elif relative_sentiment <= -self.sentiment_threshold and price_trend in ["UPTREND", "NEUTRAL"]:
+                signal = SignalType.WEAK_LONG
+                trend_alignment = 0.7 if price_trend == "UPTREND" else 0.3
+                reasoning_parts.append(f"WEAK LONG: Moderate score ({signal_score:.2f}) with {price_trend.lower()}")
+            else:
+                signal = SignalType.HOLD
+                reasoning_parts.append(f"HOLD: Moderate score but no clear direction")
+                
+        else:
+            # HOLD signals
+            signal = SignalType.HOLD
+            if price_movement == "LOW_MOVEMENT":
+                reasoning_parts.append(f"HOLD: Low price movement")
+            elif abs(relative_sentiment) < self.sentiment_threshold:
+                reasoning_parts.append(f"HOLD: Weak sentiment ({relative_sentiment:.2f})")
+            else:
+                reasoning_parts.append(f"HOLD: Low signal score ({signal_score:.2f})")
         
         # Add volume analysis to reasoning
         if volume_signal != "NORMAL_VOLUME":
@@ -164,12 +244,22 @@ class SignalEngine:
             elif volume_signal == "LOW_VOLUME":
                 trend_alignment *= 0.8  # Reduce confidence with low volume
         
+        # Add news confidence to reasoning
+        if news_confidence < self.news_confidence_threshold:
+            reasoning_parts.append(f"Low news confidence: {news_confidence:.2f}")
+            trend_alignment *= 0.7  # Reduce confidence with low news confidence
+        
+        # Add price momentum to reasoning
+        if price_momentum > 0.5:
+            reasoning_parts.append(f"High price momentum: {price_momentum:.2f}")
+        
         # Calculate confidence with enhanced formula
-        confidence = min(1.0, sentiment_strength * 0.5 + trend_alignment * 0.4 + (1.0 if volume_signal == "HIGH_VOLUME" else 0.5) * 0.1)
+        confidence = min(1.0, sentiment_strength * 0.4 + trend_alignment * 0.3 + 
+                        (news_confidence * 0.2) + (1.0 if volume_signal == "HIGH_VOLUME" else 0.5) * 0.1)
         
         reasoning = " | ".join(reasoning_parts)
         
-        return signal, confidence, reasoning
+        return signal, confidence, reasoning, signal_score
     
     def analyze_multiple_symbols(self, 
                                symbol_sentiments: Dict[str, float],
@@ -187,43 +277,25 @@ class SignalEngine:
         return results
     
     def get_signal_summary(self, results: Dict[str, SignalResult]) -> Dict:
-        """Get summary of all signals"""
-        summary = {
-            'total_signals': len(results),
-            'long_signals': 0,
-            'short_signals': 0,
-            'hold_signals': 0,
-            'avg_confidence': 0.0,
-            'strongest_signal': None
-        }
-        
+        """Get summary statistics for signals"""
         if not results:
-            return summary
+            return {}
         
-        confidences = []
-        strongest_signal = None
-        max_confidence = 0.0
+        signal_counts = {}
+        confidence_scores = []
+        signal_scores = []
         
-        for symbol, result in results.items():
-            if result.signal == SignalType.LONG:
-                summary['long_signals'] += 1
-            elif result.signal == SignalType.SHORT:
-                summary['short_signals'] += 1
-            else:
-                summary['hold_signals'] += 1
-            
-            confidences.append(result.confidence)
-            
-            if result.confidence > max_confidence:
-                max_confidence = result.confidence
-                strongest_signal = {
-                    'symbol': symbol,
-                    'signal': result.signal.value,
-                    'confidence': result.confidence,
-                    'reasoning': result.reasoning
-                }
+        for result in results.values():
+            signal_type = result.signal.value
+            signal_counts[signal_type] = signal_counts.get(signal_type, 0) + 1
+            confidence_scores.append(result.confidence)
+            signal_scores.append(result.signal_score)
         
-        summary['avg_confidence'] = np.mean(confidences)
-        summary['strongest_signal'] = strongest_signal
-        
-        return summary 
+        return {
+            'signal_distribution': signal_counts,
+            'avg_confidence': np.mean(confidence_scores) if confidence_scores else 0.0,
+            'avg_signal_score': np.mean(signal_scores) if signal_scores else 0.0,
+            'strong_signals': signal_counts.get('STRONG_LONG', 0) + signal_counts.get('STRONG_SHORT', 0),
+            'weak_signals': signal_counts.get('WEAK_LONG', 0) + signal_counts.get('WEAK_SHORT', 0),
+            'total_signals': len(results)
+        } 

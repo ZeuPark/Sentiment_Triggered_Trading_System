@@ -5,6 +5,7 @@ import pandas as pd
 import yfinance as yf
 import requests
 from twelvedata import TDClient
+import alpaca_trade_api as tradeapi
 import os
 from dotenv import load_dotenv
 
@@ -119,6 +120,90 @@ class TwelveDataFetcher(PriceFetcher):
             
         except Exception as e:
             print(f"Error fetching prices from Twelve Data: {e}")
+            return pd.DataFrame(columns=['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
+
+class AlpacaMarketFetcher(PriceFetcher):
+    """Alpaca Market API implementation for fetching price data"""
+    
+    def __init__(self, api_key: Optional[str] = None, secret_key: Optional[str] = None, base_url: Optional[str] = None):
+        self.api_key = api_key or os.getenv('ALPACA_API_KEY')
+        self.secret_key = secret_key or os.getenv('ALPACA_SECRET_KEY')
+        self.base_url = base_url or os.getenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
+        
+        if not self.api_key or not self.secret_key:
+            raise ValueError("Alpaca API key and secret key are required")
+        
+        try:
+            self.api = tradeapi.REST(
+                key_id=self.api_key,
+                secret_key=self.secret_key,
+                base_url=self.base_url,
+                api_version='v2'
+            )
+        except Exception as e:
+            raise ValueError(f"Failed to initialize Alpaca API: {e}")
+    
+    def fetch_prices(self, symbol: str, interval: str, start_time: datetime, end_time: datetime) -> pd.DataFrame:
+        """Fetch price data from Alpaca Market API"""
+        try:
+            # Convert interval to Alpaca format
+            interval_map = {
+                '1m': '1Min',
+                '5m': '5Min',
+                '15m': '15Min',
+                '1h': '1Hour',
+                '1d': '1Day'
+            }
+            
+            alpaca_interval = interval_map.get(interval, '1Min')
+            
+            # Convert datetime to string format for Alpaca
+            start_str = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+            end_str = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+            
+            # Fetch historical data from Alpaca
+            bars = self.api.get_bars(
+                symbol,
+                alpaca_interval,
+                start=start_str,
+                end=end_str,
+                adjustment='all'
+            )
+            
+            # Convert to DataFrame
+            df = bars.df
+            
+            if df.empty:
+                print(f"No data found for {symbol} from {start_time} to {end_time}")
+                return pd.DataFrame(columns=['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
+            
+            # Reset index to make timestamp a column
+            df = df.reset_index()
+            
+            # Rename columns to standard format
+            df = df.rename(columns={
+                'timestamp': 'Timestamp',
+                'open': 'Open',
+                'high': 'High',
+                'low': 'Low',
+                'close': 'Close',
+                'volume': 'Volume'
+            })
+            
+            # Ensure we have all required columns
+            required_columns = ['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume']
+            for col in required_columns:
+                if col not in df.columns:
+                    df[col] = 0
+            
+            # Convert timestamp to datetime if it's not already
+            if not pd.api.types.is_datetime64_any_dtype(df['Timestamp']):
+                df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+            
+            return df[required_columns]
+            
+        except Exception as e:
+            print(f"Error fetching prices from Alpaca Market API: {e}")
             return pd.DataFrame(columns=['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
 
 class MockPriceFetcher(PriceFetcher):

@@ -7,6 +7,8 @@ SentimentTriggeredTradingSystem - Main Execution File
 
 import os
 import sys
+import json
+import pickle
 from datetime import datetime, timedelta
 from typing import List, Dict
 import argparse
@@ -15,11 +17,46 @@ import argparse
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from fetchers.news_fetcher import MockNewsFetcher, NewsAPIFetcher, FinnhubNewsFetcher
-from fetchers.price_fetcher import MockPriceFetcher, YahooFinanceFetcher, TwelveDataFetcher
+from fetchers.price_fetcher import MockPriceFetcher, AlpacaMarketFetcher, TwelveDataFetcher
 from analyzers.sentiment_analyzer import MockSentimentAnalyzer, VADERSentimentAnalyzer, FinBERTSentimentAnalyzer
 from engine.signal_engine import SignalEngine
 from backtest.backtester import Backtester
 from visualizer import Visualizer
+
+# Data caching
+CACHE_DIR = "cache"
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+def get_cache_path(data_type: str, symbol: str, start_date: str, end_date: str) -> str:
+    """Generate cache file path"""
+    return os.path.join(CACHE_DIR, f"{data_type}_{symbol}_{start_date}_{end_date}.pkl")
+
+def load_cached_data(cache_path: str):
+    """Load cached data if exists and not expired"""
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'rb') as f:
+                cached_data = pickle.load(f)
+                # Check if cache is not older than 24 hours
+                if datetime.now() - cached_data.get('timestamp', datetime.min) < timedelta(hours=24):
+                    print(f"📦 Using cached data: {cache_path}")
+                    return cached_data.get('data')
+        except Exception as e:
+            print(f"⚠️  Cache loading failed: {e}")
+    return None
+
+def save_cached_data(cache_path: str, data):
+    """Save data to cache"""
+    try:
+        cached_data = {
+            'data': data,
+            'timestamp': datetime.now()
+        }
+        with open(cache_path, 'wb') as f:
+            pickle.dump(cached_data, f)
+        print(f"💾 Data cached: {cache_path}")
+    except Exception as e:
+        print(f"⚠️  Cache saving failed: {e}")
 
 def setup_components(use_mock: bool = True, news_source: str = "auto") -> tuple:
     """
@@ -62,9 +99,13 @@ def setup_components(use_mock: bool = True, news_source: str = "auto") -> tuple:
                 news_fetcher = MockNewsFetcher()
         
         try:
-            price_fetcher = YahooFinanceFetcher()  # No API key required
+            price_fetcher = AlpacaMarketFetcher()  # Requires ALPACA_API_KEY and ALPACA_SECRET_KEY
+            print("📈 Using Alpaca Market API for price data")
+        except ValueError as e:
+            print(f"⚠️  Alpaca API key not found: {e}, falling back to mock")
+            price_fetcher = MockPriceFetcher()
         except Exception as e:
-            print(f"⚠️  Yahoo Finance error: {e}, falling back to mock")
+            print(f"⚠️  Alpaca API error: {e}, falling back to mock")
             price_fetcher = MockPriceFetcher()
         
         try:
@@ -78,11 +119,12 @@ def setup_components(use_mock: bool = True, news_source: str = "auto") -> tuple:
                 print(f"⚠️  VADER sentiment error: {e2}, falling back to mock")
                 sentiment_analyzer = MockSentimentAnalyzer()
     
-    # Signal engine (same for both mock and real)
+    # Initialize components with enhanced parameters
     signal_engine = SignalEngine(
-        sentiment_threshold=1.0,
-        trend_lookback_periods=5,
-        volume_threshold=1.5
+        sentiment_threshold=0.1,  # Even lower threshold for more signals
+        news_confidence_threshold=0.2,  # Lower confidence requirement
+        strong_signal_threshold=0.3,  # Lower strong signal threshold
+        price_momentum_weight=0.3
     )
     
     return news_fetcher, price_fetcher, sentiment_analyzer, signal_engine
@@ -92,9 +134,10 @@ def run_backtest(symbols: List[str],
                 end_time: datetime,
                 use_mock: bool = True,
                 visualize: bool = True,
-                news_source: str = "auto") -> None:
+                news_source: str = "auto",
+                use_cache: bool = True) -> None:
     """
-    Run backtest simulation
+    Run backtest simulation with caching support
     
     Args:
         symbols: List of symbols to trade
@@ -102,12 +145,13 @@ def run_backtest(symbols: List[str],
         end_time: End of backtest period
         use_mock: Whether to use mock data
         visualize: Whether to show visualizations
+        news_source: News source preference
+        use_cache: Whether to use data caching
     """
     
-    print(f"\n🚀 Starting Backtest Simulation")
-    print(f"📊 Symbols: {symbols}")
-    print(f"📅 Period: {start_time} to {end_time}")
-    print(f"🔧 Mode: {'Mock' if use_mock else 'Real'} Data")
+    print(f"\n🚀 Starting backtest for {symbols}")
+    print(f"📅 Period: {start_time.strftime('%Y-%m-%d')} to {end_time.strftime('%Y-%m-%d')}")
+    print(f"🔧 Mode: {'Mock' if use_mock else 'Real'} data")
     
     # Setup components
     news_fetcher, price_fetcher, sentiment_analyzer, signal_engine = setup_components(use_mock, news_source)
@@ -118,166 +162,123 @@ def run_backtest(symbols: List[str],
         price_fetcher=price_fetcher,
         sentiment_analyzer=sentiment_analyzer,
         signal_engine=signal_engine,
-        initial_capital=10000.0,
-        position_size=0.1
+        stop_loss_pct=0.03,  # 3% stop loss
+        take_profit_pct=0.05,  # 5% take profit
+        max_wait_minutes=15,  # Shorter wait time
+        quick_entry_threshold=0.003,  # 0.3% for quick entry
+        quick_entry_minutes=2
     )
+    
+    # Check cache for each symbol
+    cached_data = {}
+    if use_cache and not use_mock:
+        for symbol in symbols:
+            cache_path = get_cache_path("backtest", symbol, 
+                                      start_time.strftime('%Y%m%d'), 
+                                      end_time.strftime('%Y%m%d'))
+            cached = load_cached_data(cache_path)
+            if cached:
+                cached_data[symbol] = cached
     
     # Run backtest
-    print("\n📈 Running backtest...")
-    result = backtester.run(
-        symbols=symbols,
-        start_time=start_time,
-        end_time=end_time,
-        interval='1m'
-    )
-    
-    # Display results
-    print("\n" + "="*60)
-    print("📊 BACKTEST RESULTS")
-    print("="*60)
-    print(f"Total PnL: {result.total_pnl:.2%}")
-    print(f"Win Rate: {result.win_rate:.2%}")
-    print(f"Total Trades: {result.total_trades}")
-    print(f"Average Trade PnL: {result.avg_trade_pnl:.2%}")
-    print(f"Max Drawdown: {result.max_drawdown:.2%}")
-    print(f"Sharpe Ratio: {result.sharpe_ratio:.2f}")
-    
-    print(f"\n📋 Detailed Statistics:")
-    for key, value in result.summary_stats.items():
-        if isinstance(value, float):
-            print(f"  {key}: {value:.2%}" if 'rate' in key or 'win' in key else f"  {key}: {value:.2f}")
-        else:
-            print(f"  {key}: {value}")
-    
-    # Show trade details
-    if result.trades:
-        print(f"\n📝 Recent Trades:")
-        for i, trade in enumerate(result.trades[-5:]):  # Show last 5 trades
-            print(f"  {i+1}. {trade.timestamp} | {trade.symbol} | {trade.signal.value} | "
-                  f"Entry: ${trade.entry_price:.2f} | Exit: ${trade.exit_price:.2f} | "
-                  f"PnL: {trade.pnl:.2%} | Confidence: {trade.confidence:.2f}")
-    
-    # Visualize results
-    if visualize and result.trades:
-        print("\n📊 Generating visualizations...")
-        visualizer = Visualizer(style='plotly')
-        visualizer.plot_backtest_results(result)
+    try:
+        result = backtester.run(
+            symbols=symbols,
+            start_time=start_time,
+            end_time=end_time,
+            interval='1m',
+            cached_data=cached_data
+        )
         
-        # Additional visualizations
-        if hasattr(result, 'sentiment_data') and result.sentiment_data:
-            print("📈 Generating sentiment heatmap...")
-            visualizer.plot_sentiment_heatmap(result.sentiment_data)
+        # Cache results if not using mock data
+        if use_cache and not use_mock:
+            for symbol in symbols:
+                cache_path = get_cache_path("backtest", symbol, 
+                                          start_time.strftime('%Y%m%d'), 
+                                          end_time.strftime('%Y%m%d'))
+                save_cached_data(cache_path, result)
         
-        if hasattr(result, 'symbol_signals') and result.symbol_signals:
-            print("📊 Generating market vs symbol analysis...")
-            # Mock market signals for demonstration
-            market_signals = {symbol: signals for symbol, signals in result.symbol_signals.items()}
-            visualizer.plot_market_vs_symbol_signals(
-                result.symbol_signals, 
-                market_signals, 
-                result.price_data
-            )
-    
-    return result
+        # Print results
+        print(f"\n📊 Backtest Results:")
+        print(f"Total PnL: {result.total_pnl:.2%}")
+        print(f"Win Rate: {result.win_rate:.2%}")
+        print(f"Total Trades: {result.total_trades}")
+        print(f"Avg Trade PnL: {result.avg_trade_pnl:.2%}")
+        print(f"Max Drawdown: {result.max_drawdown:.2%}")
+        print(f"Sharpe Ratio: {result.sharpe_ratio:.2f}")
+        
+        # Visualize if requested
+        if visualize:
+            visualizer = Visualizer(style='plotly')
+            visualizer.plot_backtest_results(result)
+            
+    except Exception as e:
+        print(f"❌ Backtest failed: {e}")
+        raise
 
 def run_realtime_monitoring(symbols: List[str], 
                           use_mock: bool = True,
                           monitoring_duration: int = 60,
                           news_source: str = "auto") -> None:
     """
-    Run real-time monitoring mode
+    Run real-time monitoring
     
     Args:
         symbols: List of symbols to monitor
         use_mock: Whether to use mock data
-        monitoring_duration: Duration in minutes to monitor
+        monitoring_duration: Duration in minutes
+        news_source: News source preference
     """
     
-    print(f"\n🔍 Starting Real-time Monitoring")
-    print(f"📊 Symbols: {symbols}")
+    print(f"\n🔍 Starting real-time monitoring for {symbols}")
     print(f"⏱️  Duration: {monitoring_duration} minutes")
-    print(f"🔧 Mode: {'Mock' if use_mock else 'Real'} Data")
+    print(f"🔧 Mode: {'Mock' if use_mock else 'Real'} data")
     
     # Setup components
     news_fetcher, price_fetcher, sentiment_analyzer, signal_engine = setup_components(use_mock, news_source)
     
-    # Monitoring loop
-    end_time = datetime.now() + timedelta(minutes=monitoring_duration)
+    # Create backtester for monitoring
+    backtester = Backtester(
+        news_fetcher=news_fetcher,
+        price_fetcher=price_fetcher,
+        sentiment_analyzer=sentiment_analyzer,
+        signal_engine=signal_engine
+    )
     
-    print(f"\n🔄 Starting monitoring loop (until {end_time})...")
-    print("Press Ctrl+C to stop early")
+    # Monitor for specified duration
+    end_time = datetime.now()
+    start_time = end_time - timedelta(minutes=monitoring_duration)
     
     try:
-        while datetime.now() < end_time:
-            current_time = datetime.now()
-            
-            print(f"\n⏰ {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            print("-" * 40)
-            
-            # Fetch recent data (last hour)
-            start_time = current_time - timedelta(hours=1)
-            
-            for symbol in symbols:
-                try:
-                    # Fetch recent news
-                    news_data = news_fetcher.fetch_news(symbol, start_time, current_time)
-                    
-                    if news_data:
-                        # Analyze sentiment
-                        sentiments = []
-                        for news in news_data:
-                            sentiment = sentiment_analyzer.analyze(news['headline'])
-                            sentiments.append(sentiment)
-                        
-                        avg_sentiment = sum(sentiments) / len(sentiments)
-                        
-                        # Fetch recent price data
-                        price_data = price_fetcher.fetch_prices(symbol, '1m', start_time, current_time)
-                        
-                        if len(price_data) > 0:
-                            # Generate signal
-                            signal = signal_engine.decide(
-                                symbol_sentiment=avg_sentiment,
-                                market_sentiment=0.0,  # Mock market sentiment
-                                price_df=price_data
-                            )
-                            
-                            # Display results
-                            print(f"📊 {symbol}:")
-                            print(f"  💭 Sentiment: {avg_sentiment:.3f}")
-                            print(f"  📈 Signal: {signal.signal.value}")
-                            print(f"  🎯 Confidence: {signal.confidence:.2f}")
-                            print(f"  💡 Reasoning: {signal.reasoning}")
-                            print(f"  📰 Recent News: {len(news_data)} articles")
-                        else:
-                            print(f"📊 {symbol}: No price data available")
-                    else:
-                        print(f"📊 {symbol}: No recent news")
-                
-                except Exception as e:
-                    print(f"❌ Error processing {symbol}: {e}")
-            
-            # Wait before next iteration
-            import time
-            time.sleep(60)  # Check every minute
-    
-    except KeyboardInterrupt:
-        print("\n⏹️  Monitoring stopped by user")
-    
-    print("\n✅ Monitoring completed")
+        result = backtester.run(
+            symbols=symbols,
+            start_time=start_time,
+            end_time=end_time,
+            interval='1m'
+        )
+        
+        print(f"\n📊 Monitoring Results:")
+        print(f"Total PnL: {result.total_pnl:.2%}")
+        print(f"Win Rate: {result.win_rate:.2%}")
+        print(f"Total Trades: {result.total_trades}")
+        
+    except Exception as e:
+        print(f"❌ Monitoring failed: {e}")
+        raise
 
 def demo_mode() -> None:
     """Run demo mode with sample data"""
     
-    print("🎮 DEMO MODE")
-    print("="*50)
+    print("\n🎮 Running Demo Mode")
+    print("="*30)
     
-    # Sample symbols
-    symbols = ['TSLA', 'NVDA', 'AAPL']
-    
-    # Sample time period (last 7 days)
+    # Demo parameters
+    symbols = ["TSLA", "AAPL"]
     end_time = datetime.now()
     start_time = end_time - timedelta(days=7)
+    
+    print(f"📊 Demo symbols: {symbols}")
+    print(f"📅 Demo period: {start_time.strftime('%Y-%m-%d')} to {end_time.strftime('%Y-%m-%d')}")
     
     # Run backtest with mock data
     result = run_backtest(
@@ -298,10 +299,12 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py --demo                    # Run demo mode
-  python main.py --backtest TSLA NVDA     # Run backtest on specific symbols
-  python main.py --monitor AAPL MSFT      # Run real-time monitoring
-  python main.py --backtest TSLA --real   # Run backtest with real APIs
+  python main.py --demo                                    # Run demo mode
+  python main.py --backtest TSLA NVDA                     # Run backtest on specific symbols
+  python main.py --backtest TSLA --start-date 2024-01-01 --end-date 2024-01-31  # Custom date range
+  python main.py --monitor AAPL MSFT                      # Run real-time monitoring
+  python main.py --backtest TSLA --real                   # Run backtest with real APIs
+  python main.py --backtest TSLA --no-cache               # Disable data caching
         """
     )
     
@@ -328,6 +331,9 @@ Examples:
     
     parser.add_argument('--no-viz', action='store_true',
                        help='Disable visualizations')
+    
+    parser.add_argument('--no-cache', action='store_true',
+                       help='Disable data caching')
     
     parser.add_argument('--news-source', choices=['auto', 'finnhub', 'newsapi'],
                        default='auto', help='Preferred news source (default: auto)')
@@ -361,7 +367,8 @@ Examples:
             end_time=end_time,
             use_mock=not args.real,
             visualize=not args.no_viz,
-            news_source=args.news_source
+            news_source=args.news_source,
+            use_cache=not args.no_cache
         )
     
     elif args.monitor:
