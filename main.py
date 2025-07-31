@@ -119,12 +119,9 @@ def setup_components(use_mock: bool = True, news_source: str = "auto") -> tuple:
                 print(f"⚠️  VADER sentiment error: {e2}, falling back to mock")
                 sentiment_analyzer = MockSentimentAnalyzer()
     
-    # Initialize components with enhanced parameters
+    # Permissive: sentiment_threshold=0.0 triggers on any nonzero sentiment
     signal_engine = SignalEngine(
-        sentiment_threshold=0.1,  # Even lower threshold for more signals
-        news_confidence_threshold=0.2,  # Lower confidence requirement
-        strong_signal_threshold=0.3,  # Lower strong signal threshold
-        price_momentum_weight=0.3
+        sentiment_threshold=0.0
     )
     
     return news_fetcher, price_fetcher, sentiment_analyzer, signal_engine
@@ -357,9 +354,9 @@ Examples:
             start_time = datetime.strptime(args.start_date, '%Y-%m-%d')
             end_time = datetime.strptime(args.end_date, '%Y-%m-%d')
         else:
-            # Default to last 7 days
+            # Default to last 365 days (1 year) instead of 7 days
             end_time = datetime.now()
-            start_time = end_time - timedelta(days=7)
+            start_time = end_time - timedelta(days=365)
         
         run_backtest(
             symbols=args.backtest,
@@ -385,4 +382,4 @@ Examples:
         demo_mode()
 
 if __name__ == "__main__":
-    main() 
+    main()
