@@ -39,4 +39,13 @@ class SignalEngine:
                 confidence=1.0,
                 symbol_sentiment=symbol_sentiment,
                 reasoning=f"Sentiment {symbol_sentiment:.3f} in (-{self.sentiment_threshold}, {self.sentiment_threshold}) → HOLD"
-            ) 
+            )
+    
+    def generate_signal(self, sentiment_score, **kwargs):
+        # Permissive logic: any nonzero sentiment triggers a trade
+        if sentiment_score > 0:
+            return "LONG"
+        elif sentiment_score < 0:
+            return "SHORT"
+        else:
+            return "HOLD"
